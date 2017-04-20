@@ -1,7 +1,12 @@
- <?php
+<?php
 
 /**
- * 
+ * @project PHP Socket Server - Multiple clients, client broadcasting, shutdown grace period, etc. No forking nessessary!
+ * @author Alexander Gailey-White
+ *
+ * TODO
+ * -----------------------
+ * 0x06 ACK for client and connection checking?
  */
 
 /*class Block {
@@ -56,9 +61,8 @@
 }*/
 
 /**
- * 
+ *
  */
-
 class Server {
 	const SHUTDOWN_GRACE = 3;
 	const PCKT_READ_LEN = 512;
@@ -70,14 +74,17 @@ class Server {
 		self::$time = time();
 		echo __EOL . str_repeat( '-', 45 ) . __EOL . " Super Awesome Socket Server" . __EOL . str_repeat( '-', 45 ) . __EOL . __EOL;
 
-		if( ( self::$socket = socket_create( AF_INET, SOCK_STREAM, SOL_TCP ) ) < 0 )
+		if ( ( self::$socket = socket_create( AF_INET, SOCK_STREAM, SOL_TCP ) ) < 0 ) {
 			die( "Failed to create socket: " . socket_strerror( self::$socket ) . __EOL );
+		}
 
-		if( ( $return = socket_bind( self::$socket, $address, $port ) ) < 0 )
+		if ( ( $return = socket_bind( self::$socket, $address, $port ) ) < 0 ) {
 			die( "Failed to bind to socket: " . socket_strerror( $return ) . __EOL );
+		}
 
-		if( ( $return = socket_listen( self::$socket ) ) < 0 )
+		if ( ( $return = socket_listen( self::$socket ) ) < 0 ) {
 			die( "Failed to listen to socket: " . socket_strerror( $return ) . __EOL );
+		}
 
 		//socket_set_option( self::$socket, SOL_SOCKET, SO_RCVTIMEO, array( 'sec' => 10, 'usec' => 10000000 ) );
 		//socket_set_option( self::$socket, SOL_SOCKET, SO_SNDTIMEO, array( 'sec' => 10, 'usec' => 10000000 ) );
@@ -100,76 +107,87 @@ class Server {
 		return self::$time;
 	}
 
-    public static function console( $string ) {
+	public static function console( $string ) {
 		echo "[" . gmdate( 'Y-m-d H:i:s' ) . "] " . $string . __EOL;
 	}
 
-    public static function newClient( $socket = null ) {
-        if( !is_resource( $socket ) )
-            return;
+	public static function newClient( $socket = null ) {
+		if ( ! is_resource( $socket ) ) {
+			return;
+		}
 
 		socket_set_option( $socket, SOL_SOCKET, SO_RCVTIMEO, array( 'sec' => 10, 'usec' => 10000000 ) );
 		socket_set_option( $socket, SOL_SOCKET, SO_SNDTIMEO, array( 'sec' => 10, 'usec' => 10000000 ) );
 		socket_set_nonblock( $socket );
 
-        $client = new Client( $socket );
-		$uid = $client->getUID();
-		
+		$client = new Client( $socket );
+		$uid    = $client->getUID();
+
 		// Already exists, clear it up
-		if( self::getClient( $uid ) )
+		if ( self::getClient( $uid ) ) {
 			self::getClient( $uid )->disconnect();
-		
+		}
+
 		self::$clients[ $uid ] = $client;
+
 		return $client;
-    }
+	}
 
 	public static function getNumClients() {
 		return sizeof( self::$clients );
 	}
 
 	public static function getClients() {
-        return self::$clients;
+		return self::$clients;
 	}
 
 	public static function getClient( $uid = null ) {
-        if( is_null( $uid ) )
-            return;
-		if( array_key_exists( $uid, self::$clients ) )
+		if ( is_null( $uid ) ) {
+			return;
+		}
+		if ( array_key_exists( $uid, self::$clients ) ) {
 			return self::$clients[ $uid ];
+		}
+
 		return false;
 	}
 
 	public static function removeClient( $uid ) {
-		if( is_null( $uid ) )
-            return;
+		if ( is_null( $uid ) ) {
+			return;
+		}
 
 		// Only remove if client has been disconnected.
 		$client = self::getClient( $uid );
-		if( is_null( $client->getSocket() ) ) {
+		if ( is_null( $client->getSocket() ) ) {
 			unset( self::$clients[ $uid ] );
+
 			return true;
 		}
+
 		return false;
 	}
 
 	public static function broadcast( $buffer ) {
-		if( !self::getNumClients() )
+		if ( ! self::getNumClients() ) {
 			return;
-		foreach( self::getClients() as $uid => $client )
+		}
+		foreach ( self::getClients() as $uid => $client ) {
 			$client->send( $buffer );
+		}
+
 		return true;
 	}
 }
 
 /**
- * 
+ *
  */
-
 class Client {
 	private $socket = null;
-    private $address = null;
-    private $port = null;
-    private $lastFailure = null;
+	private $address = null;
+	private $port = null;
+	private $lastFailure = null;
 
 	function __construct( $socket = null ) {
 		$this->socket = $socket;
@@ -202,28 +220,31 @@ class Client {
 	}
 
 	public function send( $buffer = null ) {
-		if( is_null( $buffer ) )
+		if ( is_null( $buffer ) ) {
 			return;
+		}
 
 		$buffer .= __EOL;
 		$length = strlen( $buffer );
 		while( true ) {
 			$sent = socket_write( $this->socket, $buffer, $length );
-			if( $sent === false ) {
+			if ( $sent === false ) {
 				$this->console( sprintf( 'Failed to write buffer of %d bytes', $length ) );
 				$this->disconnect();
 				Server::removeClient( $this->getUID() );
 				break;
 			}
 
-			if( __LOG_WRITE == 1 )
+			if ( __LOG_WRITE == 1 ) {
 				$this->console( "-> " . rtrim( substr( $buffer, 0, $sent ) ) . ( $sent < $length ? __EOL : '' ) );
+			}
 
-			if( $sent < $length ) {
+			if ( $sent < $length ) {
 				$buffer = substr( $buffer, $sent );
 				$length -= $sent;
-			} else
+			} else {
 				break;
+			}
 		}
 	}
 
@@ -232,8 +253,9 @@ class Client {
 	}
 
 	public function setLastFailure( $time = null ) {
-		if( is_null( $time ) )
+		if ( is_null( $time ) ) {
 			$time = time();
+		}
 		$this->lastFailure = $time;
 	}
 
